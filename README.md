@@ -4,13 +4,13 @@ A beautiful and minimalist roblox notification libary to replace CoreGUI, Origin
 ## Getting Started
 Firstly, Load the libary and declare it in your lua:
 ```lua
-local Notis = loadstring(game:HttpGet("https://raw.githubusercontent.com/mintra-nodes/SleekNotify/refs/heads/main/core.lua"))()
+local Notify = loadstring(game:HttpGet("https://raw.githubusercontent.com/mintra-nodes/SleekNotify/refs/heads/main/core.lua"))()
 ```
 
 ## Sending a notification (Examples)
 Now heres most of the ways to send notifications.
 ```lua
-local Notis = loadstring(game:HttpGet("https://raw.githubusercontent.com/mintra-nodes/SleekNotify/refs/heads/main/core.lua"))()
+local Notify = loadstring(game:HttpGet("https://raw.githubusercontent.com/mintra-nodes/SleekNotify/refs/heads/main/core.lua"))()
 
 -- Barebones sending, Description only.
 Notify.info("Server joined successfully")
