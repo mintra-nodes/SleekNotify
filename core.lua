@@ -1,18 +1,17 @@
 local TweenService = game:GetService("TweenService")
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 
 local Notify = {}
 Notify.__index = Notify
 
 local CFG = {
-	Width    = 300,
-	Height   = 60,
-	Padding  = 16,
-	Gap      = 8,
-	Duration = 3.5,
-	AnimTime = 0.4,
-	Corner   = 10,
+	Width      = 300,
+	Height     = 60,
+	Padding    = 16,
+	Gap        = 8,
+	Duration   = 3.5,
+	AnimTime   = 0.4,
+	Corner     = 10,
 	MaxVisible = 6,
 
 	Font     = Enum.Font.GothamMedium,
@@ -28,10 +27,10 @@ local CFG = {
 	},
 
 	Icons = {
-		info    = "rbxassetid://7733960981",  -- info circle
-		success = "rbxassetid://7734053495",  -- check circle
-		warning = "rbxassetid://7734064831",  -- alert triangle
-		error   = "rbxassetid://7734076914",  -- x circle
+		info    = "rbxassetid://7733960981",
+		success = "rbxassetid://7734053495",
+		warning = "rbxassetid://7734064831",
+		error   = "rbxassetid://7734076914",
 		default = nil,
 	},
 }
@@ -41,42 +40,55 @@ local active = {}
 local gui    = nil
 local holder = nil
 
--- Executor-safe GUI parenting
+-- FIX 1: Safe executor-compatible GUI parenting using pcall on all globals
 local function getGui()
-	if gui then return end
-
-	local player  = Players.LocalPlayer
-	local success, result = pcall(function()
-		return player:FindFirstChildOfClass("PlayerGui")
-	end)
-
-	local parent
-	if success and result then
-		parent = result
-	else
-		-- Fallback: CoreGui (requires syn.protect_gui or gethui in some executors)
-		local coreGui = game:GetService("CoreGui")
-		if pcall(function() return coreGui.RobloxGui end) then
-			parent = coreGui
-		end
-	end
+	-- FIX 2: Also re-check holder in case it was destroyed
+	if gui and holder and holder.Parent then return end
 
 	gui = Instance.new("ScreenGui")
-	gui.Name = "NotifyUI_" .. tostring(math.random(1000, 9999)) -- avoid name conflicts
+	gui.Name = "NotifyUI_" .. tostring(math.random(1000, 9999))
 	gui.ResetOnSpawn = false
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	gui.IgnoreGuiInset = true
 	gui.DisplayOrder = 9999
 
-	-- Executor: protect gui if API exists
-	if syn and syn.protect_gui then
-		syn.protect_gui(gui)
-		gui.Parent = game:GetService("CoreGui")
-	elseif gethui then
-		gui.Parent = gethui()
-	elseif parent then
-		gui.Parent = parent
-	else
+	-- FIX 1: Wrap all executor-specific globals in pcall so missing APIs
+	-- don't cause errors; fall through to safe fallbacks
+	local parented = false
+
+	if not parented then
+		local ok, hasSyn = pcall(function() return syn and syn.protect_gui end)
+		if ok and hasSyn then
+			pcall(function()
+				syn.protect_gui(gui)
+				gui.Parent = game:GetService("CoreGui")
+				parented = true
+			end)
+		end
+	end
+
+	if not parented then
+		local ok, fn = pcall(function() return gethui end)
+		if ok and fn then
+			pcall(function()
+				gui.Parent = gethui()
+				parented = true
+			end)
+		end
+	end
+
+	if not parented then
+		local ok, playerGui = pcall(function()
+			return Players.LocalPlayer:FindFirstChildOfClass("PlayerGui")
+		end)
+		if ok and playerGui then
+			gui.Parent = playerGui
+			parented = true
+		end
+	end
+
+	if not parented then
+		-- Last resort fallback
 		gui.Parent = game:GetService("CoreGui")
 	end
 
@@ -121,7 +133,12 @@ local function dismiss(entry)
 		entry.frame,
 		TweenInfo.new(CFG.AnimTime, Enum.EasingStyle.Quint, Enum.EasingDirection.In),
 		{
-			Position = UDim2.new(0, CFG.Width + 30, entry.frame.Position.Y.Scale, entry.frame.Position.Y.Offset),
+			Position = UDim2.new(
+				0,
+				CFG.Width + 30,
+				entry.frame.Position.Y.Scale,
+				entry.frame.Position.Y.Offset
+			),
 			BackgroundTransparency = 1,
 		}
 	)
@@ -140,8 +157,8 @@ local function dismiss(entry)
 		restack()
 
 		if #queue > 0 then
-			local next = table.remove(queue, 1)
-			task.spawn(next)
+			local nextFn = table.remove(queue, 1)
+			task.spawn(nextFn)
 		end
 	end)
 end
@@ -161,7 +178,6 @@ local function build(text, title, kind, duration)
 	local hasTitle = title and title ~= ""
 	local hasIcon  = icon ~= nil
 
-	-- Outer frame
 	local frame = Instance.new("Frame")
 	frame.Name = "Notification"
 	frame.Size = UDim2.new(0, CFG.Width, 0, CFG.Height)
@@ -172,7 +188,6 @@ local function build(text, title, kind, duration)
 	frame.Parent = holder
 	makeCorner(frame)
 
-	-- Inner card (sits on top of accent)
 	local card = Instance.new("Frame")
 	card.Size = UDim2.new(1, -3, 1, 0)
 	card.Position = UDim2.new(0, 3, 0, 0)
@@ -182,7 +197,6 @@ local function build(text, title, kind, duration)
 	card.Parent = frame
 	makeCorner(card)
 
-	-- Accent bar (left edge of outer frame, 3px)
 	local accent = Instance.new("Frame")
 	accent.Size = UDim2.new(0, 3, 1, 0)
 	accent.Position = UDim2.new(0, 0, 0, 0)
@@ -191,11 +205,9 @@ local function build(text, title, kind, duration)
 	accent.Parent = frame
 	makeCorner(accent, CFG.Corner)
 
-	-- Layout inside card
 	local contentX = 12
 	local contentW = -24
 
-	-- Icon
 	if hasIcon then
 		local iconImg = Instance.new("ImageLabel")
 		iconImg.Size = UDim2.new(0, 16, 0, 16)
@@ -209,7 +221,6 @@ local function build(text, title, kind, duration)
 		contentW = contentW - 24
 	end
 
-	-- Title + body stacked, or just body centered
 	if hasTitle then
 		local titleLabel = Instance.new("TextLabel")
 		titleLabel.Size = UDim2.new(1, contentW - 20, 0, 18)
@@ -249,7 +260,6 @@ local function build(text, title, kind, duration)
 		bodyLabel.Parent = card
 	end
 
-	-- Close button
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Size = UDim2.new(0, 20, 0, 20)
 	closeBtn.Position = UDim2.new(1, -24, 0.5, -10)
@@ -267,7 +277,6 @@ local function build(text, title, kind, duration)
 		closeBtn.TextColor3 = Color3.fromHex("#52525B")
 	end)
 
-	-- Progress bar
 	local bar = Instance.new("Frame")
 	bar.Size = UDim2.new(1, 0, 0, 2)
 	bar.Position = UDim2.new(0, 0, 1, -2)
@@ -277,18 +286,24 @@ local function build(text, title, kind, duration)
 	bar.Parent = card
 
 	local entry = {
-		frame      = frame,
-		bar        = bar,
-		dismissed  = false,
-		thread     = nil,
-		barTween   = nil,
-		barProgress = 1, -- 0-1 remaining
-		startTime  = os.clock(),
-		dur        = dur,
+		frame     = frame,
+		bar       = bar,
+		dismissed = false,
+		thread    = nil,
+		barTween  = nil,
+		startTime = os.clock(),
+		dur       = dur,
 	}
+
+	-- FIX 3: Track remaining time via os.clock() instead of reading bar scale
+	-- (bar tween uses UDim offset=0 target, so Scale is always 0 mid-tween)
+	local pausedRemaining = nil
 
 	local function startBarTween(remaining)
 		if entry.barTween then entry.barTween:Cancel() end
+		-- Represent progress as X scale (1 → 0 over `remaining` seconds)
+		local startScale = math.clamp(remaining / dur, 0, 1)
+		bar.Size = UDim2.new(startScale, 0, 0, 2)
 		entry.barTween = TweenService:Create(
 			bar,
 			TweenInfo.new(remaining, Enum.EasingStyle.Linear),
@@ -304,13 +319,16 @@ local function build(text, title, kind, duration)
 		end)
 	end
 
-	-- Hover pause/resume
-	local hovered = false
-	local remaining = dur
+	local hoverStart = nil
 
 	card.MouseEnter:Connect(function()
-		hovered = true
-		remaining = dur * (bar.Size.X.Scale)
+		if entry.dismissed then return end
+		hoverStart = os.clock()
+
+		-- FIX 3: Calculate remaining from elapsed wall time
+		local elapsed = hoverStart - entry.startTime
+		pausedRemaining = math.max(0, dur - elapsed)
+
 		if entry.barTween then entry.barTween:Pause() end
 		if entry.thread then
 			task.cancel(entry.thread)
@@ -319,22 +337,24 @@ local function build(text, title, kind, duration)
 	end)
 
 	card.MouseLeave:Connect(function()
-		hovered = false
 		if entry.dismissed then return end
-		remaining = dur * (bar.Size.X.Scale)
+
+		local remaining = pausedRemaining or dur
+		-- Reset startTime so elapsed calculation stays correct on re-hover
+		entry.startTime = os.clock() - (dur - remaining)
+
 		startBarTween(remaining)
 		scheduleAutoDismiss(remaining)
+		hoverStart = nil
 	end)
 
 	closeBtn.MouseButton1Click:Connect(function()
 		dismiss(entry)
 	end)
 
-	-- Slide in
 	table.insert(active, entry)
 	restack()
 
-	-- Start timers
 	startBarTween(dur)
 	scheduleAutoDismiss(dur)
 
@@ -379,3 +399,5 @@ function Notify.dismissAll()
 	end
 	queue = {}
 end
+
+return Notify
